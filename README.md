@@ -6,6 +6,39 @@
 
 **Keywords:** voice biometrics, speaker recognition, speaker verification, speaker identification, acoustic features, speech activity detector, machine learning, speaker embedding extractor, deep neural network, decision theory, domain adaptation and calibration.
 
+## Setup with uv
+
+The same `uv.lock` supports macOS 12 on Apple Silicon and current Ubuntu releases on x86_64. The project uses Python 3.10 because the original dependency set is not compatible with Python 3.12. `uv` installs the required Python version when it is not already available.
+
+Install the system audio tool first:
+
+```shell
+# macOS with Homebrew
+brew install ffmpeg
+
+# Ubuntu
+sudo apt update
+sudo apt install -y ffmpeg
+```
+
+Install [uv](https://docs.astral.sh/uv/), then run from the repository root on either system:
+
+```shell
+uv python install 3.10
+uv sync --frozen
+uv run jupyter notebook
+```
+
+`uv sync` creates the local `.venv` automatically. To activate it manually:
+
+```shell
+source .venv/bin/activate
+```
+
+Open a lab notebook from its own directory so that its relative imports and data paths work as expected.
+
+On macOS, PyTorch uses CPU or Metal where available. On Ubuntu, the locked PyTorch build includes the CUDA 12 runtime for NVIDIA GPUs and falls back to CPU when CUDA is unavailable.
+
 **Datasets:** the main databases for performing of labs is [VoxCeleb corpus](https://www.robots.ox.ac.uk/~vgg/data/voxceleb/).
 
 ![Fugure 1](https://raw.githubusercontent.com/itmo-mbss-lab/sr_labs_book/refs/heads/main/images/voxceleb_dataset.png "VoxCeleb. A large scale audio-visual dataset of human speech")

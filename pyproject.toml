@@ -1,0 +1,37 @@
+[project]
+name = "sr-labs-book"
+version = "0.1.0"
+description = "Laboratory materials for the ITMO Speaker Recognition Course"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "intervaltree>=3.1,<4",
+    "ipykernel>=6.29,<7",
+    "matplotlib>=3.9,<4",
+    "notebook>=7.2,<8",
+    "numpy>=1.26,<2",
+    "openai-whisper==20230314",
+    "pandas>=2.2,<3",
+    "pyyaml>=6,<7",
+    "scikit-image>=0.24,<1",
+    "scikit-learn>=1.5,<2",
+    "scipy>=1.13,<2",
+    "setuptools<81",
+    "soundfile>=0.12,<1",
+    "tabulate>=0.9,<1",
+    "torch==2.2.2",
+    "torchaudio==2.2.2",
+    "torchvision==0.17.2",
+    "tqdm>=4.66,<5",
+]
+
+[tool.uv]
+package = false
+compile-bytecode = true
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.extra-build-dependencies]
+openai-whisper = ["setuptools<81"]
