@@ -1,6 +1,7 @@
 #Custom
 data/*
 !data/lists
+voxceleb/
 
 #idea files
 .idea

@@ -4,104 +4,114 @@
 # Import of modules
 import numpy as np
 import scipy.signal
+from collections import defaultdict
 
 from skimage.morphology import opening, closing
 
 
 def load_vad_markup(path_to_rttm, signal, fs):
-    # Function to read rttm files and generate VAD's markup in samples
+    def seconds_to_samples(seconds: str):
+        return int(fs * float(seconds))
     
-    vad_markup = np.zeros(len(signal)).astype('float32')
+    with open(path_to_rttm) as f:
+        rttm = f.readlines()
         
-    ###########################################################
-    # Here is your code
-    
-    ###########################################################
-    
+    rttm_stamps = []
+    for line in rttm:
+        info = line.split(" ")
+        channel = info[2]
+        voice_start = seconds_to_samples(info[3])
+        voice_end = voice_start + seconds_to_samples(info[4])
+
+        rttm_stamps.append([
+            channel,
+            voice_start, 
+            voice_end
+        ])
+    vad_markup = np.zeros(len(signal)).astype('float32')
+    for interval in rttm_stamps:
+        vad_markup[interval[1]:interval[2]] = np.ones(
+            interval[2] - interval[1]
+        ).astype('float32')
+
     return vad_markup
 
-def framing(signal, window=320, shift=160):
-    # Function to create frames from signal
-    
-    shape   = (int((signal.shape[0] - window)/shift + 1), window)
-    frames  = np.zeros().astype('float32')
 
-    ###########################################################
-    # Here is your code
-    
-    ###########################################################
-    
+def framing(signal, window, shift):
+    signal = np.asarray(signal)
+
+    if window <= 0 or shift <= 0:
+        raise ValueError('Размер окна и шаг должны быть больше нуля')
+
+    if len(signal) <= window:
+        num_frames = 1
+    else:
+        num_frames = 1 + int(np.ceil((len(signal) - window) / shift))
+
+    padded_length = (num_frames - 1) * shift + window
+    padded_signal = np.zeros(padded_length)
+    padded_signal[:len(signal)] = signal
+
+    frames = np.zeros((num_frames, window))
+    for i in range(num_frames):
+        start = i * shift
+        frames[i] = padded_signal[start:start + window]
+
     return frames
 
-def frame_energy(frames):
-    # Function to compute frame energies
-    
-    E = np.zeros(frames.shape[0]).astype('float32')
 
-    ###########################################################
-    # Here is your code
-    
-    ###########################################################
-    
-    return E
+def frame_energy(frames):
+    frame_energies = np.sum(np.abs(frames) ** 2, axis=1)
+    return frame_energies
+
 
 def norm_energy(E):
-    # Function to normalize energy by mean energy and energy standard deviation
-    
-    E_norm = np.zeros(len(E)).astype('float32')
+    return (E - np.mean(E)) / np.std(E)
 
-    ###########################################################
-    # Here is your code
-    
-    ###########################################################
-    
-    return E_norm
 
 def gmm_train(E, gauss_pdf, n_realignment):
-    # Function to train parameters of gaussian mixture model
-    
-    # Initialization gaussian mixture models
     w     = np.array([ 0.33, 0.33, 0.33])
     m     = np.array([-1.00, 0.00, 1.00])
     sigma = np.array([ 1.00, 1.00, 1.00])
 
     g = np.zeros([len(E), len(w)])
     for n in range(n_realignment):
-
         # E-step
-        ###########################################################
-        # Here is your code
-
-        ###########################################################
+        p = []
+        for n_gaussian in range(len(w)):
+            p.append(gauss_pdf(E, m[n_gaussian], sigma[n_gaussian]))
+        p = np.array(p).T
+        q = p * w
+        g = q / np.sum(q, axis=1, keepdims=True)
 
         # M-step
-        ###########################################################
-        # Here is your code
-
-        ###########################################################
+        N_k = np.sum(g, axis=0)
+        w = N_k / len(g)
+        m = (g * E[:, None]).sum(axis=0) / N_k
+        sigma = np.sqrt((g * (E[:, None] - m)**2).sum(axis=0) / N_k)
         
     return w, m, sigma
 
+
 def eval_frame_post_prob(E, gauss_pdf, w, m, sigma):
-    # Function to estimate a posterior probability that frame isn't speech
+    p = []
+    for n_gaussian in range(len(w)):
+        p.append(gauss_pdf(E, m[n_gaussian], sigma[n_gaussian]))
+    p = np.array(p).T
+    q = p * w
+    g = q / np.sum(q, axis=1, keepdims=True)
 
-    g0 = np.zeros(len(E))
-
-    ###########################################################
-    # Here is your code
-
-    ###########################################################
-            
+    silence_idx = np.argmin(m)
+    g0 = g[:, silence_idx]
     return g0
+
 
 def energy_gmm_vad(signal, window, shift, gauss_pdf, n_realignment, vad_thr, mask_size_morph_filt):
     # Function to compute markup energy voice activity detector based of gaussian mixtures model
     
-    # Squared signal
-    squared_signal = signal**2
-    
-    # Frame signal with overlap
-    frames = framing(squared_signal, window=window, shift=shift)
+    # Frame the original signal with overlap.  frame_energy applies the
+    # square while calculating the energy of each frame.
+    frames = framing(signal, window=window, shift=shift)
     
     # Sum frames to get energy
     E = frame_energy(frames)
@@ -130,26 +140,22 @@ def energy_gmm_vad(signal, window, shift, gauss_pdf, n_realignment, vad_thr, mas
     
     return vad_markup_real
 
+
 def reverb(signal, impulse_response):
-    # Function to create reverberation effect
-    
-    signal_reverb = np.zeros(len(signal)).astype('float32')
-    
-    ###########################################################
-    # Here is your code
-    
-    ###########################################################
-    
-    return signal_reverb
+    signal_reverb = scipy.signal.fftconvolve(
+        signal,
+        impulse_response,
+        mode="full"
+    )
+
+    signal_reverb = signal_reverb[:len(signal)]
+
+    return signal_reverb.astype("float32")
+
 
 def awgn(signal, sigma_noise):
-    # Function to add white gaussian noise to signal
-    
-    signal_noise = np.zeros(len(signal)).astype('float32')
-    
-    ###########################################################
-    # Here is your code
-    
-    ###########################################################
-    
+    m = 0
+    noise = np.random.normal(m, sigma_noise, len(signal))
+    signal_noise = np.clip(signal + noise, -1, 1)
+
     return signal_noise
