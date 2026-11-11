@@ -53,12 +53,19 @@ class train_dataset_loader(Dataset):
         audio = loadWAV(self.data_list[index], self.max_frames, evalmode=False)
 
         if self.augment:
-            ###########################################################
-            # Here is your code
+            augtype = random.randint(0, 5)
 
-            pass
-            
-            ###########################################################
+            if augtype == 1:
+                audio = self.augment_wav.reverberate(audio)
+            elif augtype == 2:
+                audio = self.augment_wav.additive_noise('music', audio)
+            elif augtype == 3:
+                audio = self.augment_wav.additive_noise('speech', audio)
+            elif augtype == 4:
+                audio = self.augment_wav.additive_noise('noise', audio)
+            elif augtype == 5:
+                audio = self.augment_wav.additive_noise('speech', audio)
+                audio = self.augment_wav.additive_noise('music', audio)
             
         return torch.FloatTensor(audio), self.data_label[index]
 
@@ -199,20 +206,33 @@ class ResNet(nn.Module):
         return out
 
     def forward(self, x):
-
         with torch.no_grad():
-            
             with torch.cuda.amp.autocast(enabled=False):
                 x = self.torchfb(x) + 1e-6
                 
-                if self.log_input: x = x.log()
+                if self.log_input: 
+                    x = x.log()
                 
                 x = self.instancenorm(x).unsqueeze(1)
 
-        ###########################################################
-        # Here is your code
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
 
-        ###########################################################
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = x.reshape(x.size(0), -1, x.size(-1))
+
+        if self.encoder_type == "SP":
+            mean = torch.mean(x, dim=2)
+            std = torch.std(x, dim=2, correction=0)
+
+            x = torch.cat((mean, std), dim=1)
+
+        x = self.fc(x)
 
         return x
 
@@ -242,53 +262,105 @@ class MainModel(nn.Module):
             return nloss, prec1
         
 def train_network(train_loader, main_model, optimizer, scheduler, num_epoch, verbose=False):
-    # Function to train model
+    assert scheduler[1] in ["epoch", "iteration"]
 
-    assert scheduler[1] in ['epoch', 'iteration']
-    
     main_model.train()
-    
-    stepsize = train_loader.batch_size
 
-    loss    = 0
-    top1    = 0
-    counter = 0
-    index   = 0
+    criterion = nn.CrossEntropyLoss()
+    device = next(main_model.parameters()).device
 
-    for data, data_label in train_loader:
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
 
-        data = data.transpose(1, 0)
-        
-        ###########################################################
-        # Here is your code
+    for counter, (data, data_label) in enumerate(train_loader, start=1):
 
-        ###########################################################
-        
+        # Подготовка данных
+        data = data.transpose(1, 0).to(device)
+        data_label = data_label.to(device).long()
+
+        # Forward
+        optimizer.zero_grad(set_to_none=True)
+
+        output = main_model(data)
+        batch_loss = criterion(output, data_label)
+
+        # Backward
+        batch_loss.backward()
+        optimizer.step()
+
+        # Метрики
+        batch_size = data_label.size(0)
+
+        total_loss += batch_loss.item() * batch_size
+        total_samples += batch_size
+
+        with torch.no_grad():
+            predicted = output.argmax(dim=1)
+            total_correct += (predicted == data_label).sum().item()
+
         if verbose:
-            print("Epoch {:1.0f}, Batch {:1.0f}, LR {:f} Loss {:f}, Accuracy {:2.3f}%".format(num_epoch, counter, optimizer.param_groups[0]['lr'], loss/counter, top1/counter))
+            print(
+                "Epoch {:d}, Batch {:d}, LR {:.6f}, "
+                "Loss {:.4f}, Accuracy {:.3f}%".format(
+                    num_epoch,
+                    counter,
+                    optimizer.param_groups[0]["lr"],
+                    total_loss / total_samples,
+                    100 * total_correct / total_samples
+                )
+            )
 
-        if scheduler[1] == 'iteration': scheduler[0].step()
+        if scheduler[1] == "iteration":
+            scheduler[0].step()
 
-    if scheduler[1] == 'epoch': scheduler[0].step()
+    if total_samples == 0:
+        raise ValueError("train_loader не содержит данных")
 
-    return (loss/counter, top1/counter)
+    if scheduler[1] == "epoch":
+        scheduler[0].step()
+
+    return (
+        total_loss / total_samples,
+        100 * total_correct / total_samples
+    )
 
 def test_network(test_loader, main_model):
-    # Function to test model
-    
     main_model.eval()
 
-    loss    = 0
-    top1    = 0
-    counter = 0
+    criterion = nn.CrossEntropyLoss()
+    device = next(main_model.parameters()).device
 
-    for data, data_label in test_loader:
-        
-        data = data.transpose(1, 0)
-        
-        ###########################################################
-        # Here is your code
-        
-        ###########################################################
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
 
-    return (loss/counter, top1/counter)
+    with torch.no_grad():
+        for data, data_label in test_loader:
+
+            # Подготовка данных
+            data = data.transpose(1, 0).to(device)
+            data_label = data_label.to(device).long()
+
+            # Forward
+            output = main_model(data)
+
+            # Loss
+            batch_loss = criterion(output, data_label)
+
+            # Accuracy
+            predicted = output.argmax(dim=1)
+
+            batch_size = data_label.size(0)
+
+            total_loss += batch_loss.item() * batch_size
+            total_correct += (predicted == data_label).sum().item()
+            total_samples += batch_size
+
+    if total_samples == 0:
+        raise ValueError("test_loader не содержит данных")
+
+    return (
+        total_loss / total_samples,
+        100 * total_correct / total_samples
+    )
