@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-PROJECT_ROOT = Path("__file__").resolve().parents[0]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VOXCELEB_ROOT = PROJECT_ROOT / "voxceleb" / "vox1"
 VOX1_TEST_WAV = VOXCELEB_ROOT / "test" / "wav"
 VOX1_DEV_WAV = VOXCELEB_ROOT / "dev" / "wav"
