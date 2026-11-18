@@ -168,6 +168,9 @@ def run_voxceleb_convert(input_path, result_path, fun, threads=5):
     run files processing in a parralel mode using function fun
     """
 
+    input_path = str(input_path)
+    result_path = str(result_path)
+
     check_dir(result_path)
     infile_list = []
     outfile_list = []
@@ -195,6 +198,9 @@ def get_voxceleb_filelist(input_path):
     """
     run files processing in a parralel mode using function fun
     """
+
+    input_path = str(input_path)
+
     infile_list = []
     for root, dir_list, files_list in os.walk(input_path):
         for f in files_list:
