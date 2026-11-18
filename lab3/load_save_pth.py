@@ -22,12 +22,16 @@ def saveParameters(model, optimizer, scheduler, num_epoch, path):
     torch.save(checkpoint, os.path.join(path, ''.join(['lab3_model_', str(num_epoch).zfill(4), '.pth'])))
     
 def loadParameters(model, optimizer, scheduler, path):
-    # Load parameters
+    """Load a checkpoint on the same device as the model."""
 
-    checkpoint = torch.load(path)
-    
+    device = next(model.parameters()).device
+    checkpoint = torch.load(path, map_location=device)
+
     model.load_state_dict(checkpoint['model'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
-    scheduler[0].load_state_dict(checkpoint['scheduler'])
+
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer'])
+    if scheduler is not None:
+        scheduler[0].load_state_dict(checkpoint['scheduler'])
     
     return checkpoint['num_epoch']

@@ -5,22 +5,17 @@
 import os
 import random
 
-import numpy
-
 import torch
 import torchaudio
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn import Parameter
 from torch.utils.data import Dataset
 
 from common import loadWAV, AugmentWAV
-from ResNetBlocks import *
 from preproc import PreEmphasis
 
 
 class train_dataset_loader(Dataset):
-    # Train dataset loader
+    """VoxCeleb training set with optional online augmentation."""
     
     def __init__(self, train_list, max_frames, train_path, augment=False, musan_path=None, rir_path=None):
 
@@ -39,7 +34,7 @@ class train_dataset_loader(Dataset):
         self.data_list  = []
         self.data_label = []
         
-        for lidx, line in enumerate(train_list):
+        for line in train_list:
             data = line.strip().split()
 
             speaker_label = dictkeys[data[0]]
@@ -74,7 +69,7 @@ class train_dataset_loader(Dataset):
         return len(self.data_list)
     
 class test_dataset_loader(Dataset):
-    # Test dataset loader
+    """VoxCeleb validation or test set."""
     
     def __init__(self, test_list, max_frames, test_path):
 
@@ -89,7 +84,7 @@ class test_dataset_loader(Dataset):
         self.data_list  = []
         self.data_label = []
         
-        for lidx, line in enumerate(test_list):
+        for line in test_list:
             data = line.strip().split()
 
             speaker_label = dictkeys[data[0]]
@@ -109,7 +104,7 @@ class test_dataset_loader(Dataset):
         return len(self.data_list)
 
 class MaxoutLinear(nn.Module):
-    # Maxout linear layer
+    """Maximum of two independent linear transformations."""
     
     def __init__(self, *args, **kwargs):
         
@@ -123,13 +118,13 @@ class MaxoutLinear(nn.Module):
         return torch.max(self.linear1(x), self.linear2(x))
 
 class ResNet(nn.Module):
-    # ResNet model for speaker recognition
+    """ResNet encoder that converts a waveform into a speaker embedding."""
 
     def __init__(self, block, layers, activation, num_filters, nOut, encoder_type='SP', n_mels=64, log_input=True, **kwargs):
         
         super(ResNet, self).__init__()
 
-        print('Embedding size is %d, encoder %s.'%(nOut, encoder_type))
+        print('Embedding size is %d, encoder %s.' % (nOut, encoder_type))
 
         self.inplanes     = num_filters[0]
         self.encoder_type = encoder_type
@@ -162,14 +157,10 @@ class ResNet(nn.Module):
                                        nn.Conv1d(128, num_filters[3]*outmap_size, kernel_size=1), 
                                        nn.Softmax(dim=2))
         
-        if self.encoder_type == "SP":
+        if self.encoder_type in {"SP", "ASP"}:
             out_dim = num_filters[3]*outmap_size*2
-        
-        elif self.encoder_type == "ASP":
-            out_dim = num_filters[3]*outmap_size*2
-        
         else:
-            raise ValueError('Undefined encoder')
+            raise ValueError("encoder_type must be 'SP' or 'ASP'")
 
         self.fc = nn.Sequential(MaxoutLinear(out_dim, nOut), nn.BatchNorm1d(nOut, affine=False))
 
@@ -198,22 +189,15 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def new_parameter(self, *size):
-        
-        out = nn.Parameter(torch.FloatTensor(*size))
-        nn.init.xavier_normal_(out)
-        
-        return out
-
     def forward(self, x):
+        # Acoustic features: waveform -> log Mel spectrogram.
         with torch.no_grad():
-            with torch.cuda.amp.autocast(enabled=False):
-                x = self.torchfb(x) + 1e-6
-                
-                if self.log_input: 
-                    x = x.log()
-                
-                x = self.instancenorm(x).unsqueeze(1)
+            x = self.torchfb(x.float()) + 1e-6
+
+            if self.log_input:
+                x = x.log()
+
+            x = self.instancenorm(x).unsqueeze(1)
 
         x = self.conv1(x)
         x = self.bn1(x)
@@ -226,47 +210,44 @@ class ResNet(nn.Module):
 
         x = x.reshape(x.size(0), -1, x.size(-1))
 
+        # Statistical pooling removes the time dimension.
         if self.encoder_type == "SP":
             mean = torch.mean(x, dim=2)
             std = torch.std(x, dim=2, correction=0)
+        else:
+            weights = self.attention(x)
+            mean = torch.sum(x * weights, dim=2)
+            variance = torch.sum((x ** 2) * weights, dim=2) - mean ** 2
+            std = torch.sqrt(variance.clamp(min=1e-5))
 
-            x = torch.cat((mean, std), dim=1)
+        x = torch.cat((mean, std), dim=1)
 
-        x = self.fc(x)
-
-        return x
+        return self.fc(x)
 
 class MainModel(nn.Module):
-    # Full computational graph including the neural network model and the cost function
+    """Speaker encoder together with its classification loss."""
 
     def __init__(self, model, trainfunc, **kwargs):
-        super(MainModel, self).__init__();
+        super(MainModel, self).__init__()
 
         self.__S__ = model
         self.__L__ = trainfunc
 
     def forward(self, data, label=None):
+        data = data.reshape(-1, data.size(-1))
+        embeddings = self.__S__(data)
 
-        data = data.reshape(-1, data.size()[-1]).cuda() 
-        outp = self.__S__.forward(data)
+        if label is None:
+            return embeddings
 
-        if label == None:
-            
-            return outp
-
-        else:
-            outp = outp.reshape(1, -1, outp.size()[-1]).transpose(1, 0).squeeze(1)
-
-            nloss, prec1 = self.__L__.forward(outp, label)
-
-            return nloss, prec1
+        return self.__L__(embeddings, label)
         
 def train_network(train_loader, main_model, optimizer, scheduler, num_epoch, verbose=False):
+    """Train the model for one epoch and return mean loss and accuracy."""
+
     assert scheduler[1] in ["epoch", "iteration"]
 
     main_model.train()
-
-    criterion = nn.CrossEntropyLoss()
     device = next(main_model.parameters()).device
 
     total_loss = 0.0
@@ -275,29 +256,17 @@ def train_network(train_loader, main_model, optimizer, scheduler, num_epoch, ver
 
     for counter, (data, data_label) in enumerate(train_loader, start=1):
 
-        # Подготовка данных
-        data = data.transpose(1, 0).to(device)
-        data_label = data_label.to(device).long()
-
-        # Forward
+        data = data.to(device)
+        data_label = data_label.to(device, dtype=torch.long)
         optimizer.zero_grad(set_to_none=True)
-
-        output = main_model(data)
-        batch_loss = criterion(output, data_label)
-
-        # Backward
+        batch_loss, batch_accuracy = main_model(data, data_label)
         batch_loss.backward()
         optimizer.step()
 
-        # Метрики
         batch_size = data_label.size(0)
-
         total_loss += batch_loss.item() * batch_size
+        total_correct += batch_accuracy.item() * batch_size / 100
         total_samples += batch_size
-
-        with torch.no_grad():
-            predicted = output.argmax(dim=1)
-            total_correct += (predicted == data_label).sum().item()
 
         if verbose:
             print(
@@ -326,9 +295,9 @@ def train_network(train_loader, main_model, optimizer, scheduler, num_epoch, ver
     )
 
 def test_network(test_loader, main_model):
-    main_model.eval()
+    """Evaluate a model trained with AAM-Softmax."""
 
-    criterion = nn.CrossEntropyLoss()
+    main_model.eval()
     device = next(main_model.parameters()).device
 
     total_loss = 0.0
@@ -337,24 +306,12 @@ def test_network(test_loader, main_model):
 
     with torch.no_grad():
         for data, data_label in test_loader:
-
-            # Подготовка данных
-            data = data.transpose(1, 0).to(device)
-            data_label = data_label.to(device).long()
-
-            # Forward
-            output = main_model(data)
-
-            # Loss
-            batch_loss = criterion(output, data_label)
-
-            # Accuracy
-            predicted = output.argmax(dim=1)
-
+            data = data.to(device)
+            data_label = data_label.to(device, dtype=torch.long)
+            batch_loss, batch_accuracy = main_model(data, data_label)
             batch_size = data_label.size(0)
-
             total_loss += batch_loss.item() * batch_size
-            total_correct += (predicted == data_label).sum().item()
+            total_correct += batch_accuracy.item() * batch_size / 100
             total_samples += batch_size
 
     if total_samples == 0:
@@ -364,3 +321,32 @@ def test_network(test_loader, main_model):
         total_loss / total_samples,
         100 * total_correct / total_samples
     )
+
+
+def test_legacy_classifier(test_loader, main_model):
+    """Evaluate the old checkpoint whose embedding layer was used as logits."""
+
+    main_model.eval()
+    device = next(main_model.parameters()).device
+    criterion = nn.CrossEntropyLoss()
+
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+
+    with torch.no_grad():
+        for data, data_label in test_loader:
+            data = data.to(device)
+            data_label = data_label.to(device, dtype=torch.long)
+            logits = main_model(data)
+            batch_loss = criterion(logits, data_label)
+
+            batch_size = data_label.size(0)
+            total_loss += batch_loss.item() * batch_size
+            total_correct += (logits.argmax(dim=1) == data_label).sum().item()
+            total_samples += batch_size
+
+    if total_samples == 0:
+        raise ValueError("test_loader не содержит данных")
+
+    return total_loss / total_samples, 100 * total_correct / total_samples
