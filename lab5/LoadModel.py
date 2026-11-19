@@ -10,7 +10,7 @@ from collections import OrderedDict
 import torch
 
 
-def load_model(model, lines, save_path, reload=False):
+def load_model(model, lines, save_path, reload=False, device="cpu"):
     # Load model's weights
     
     if not os.path.exists(save_path):
@@ -31,10 +31,10 @@ def load_model(model, lines, save_path, reload=False):
 
         print('File %s is downloaded.'%outfile)
 
-    # for cpu
-    # checkpoint = torch.load(os.path.join(save_path, 'baseline_v2_ap.model'), map_location=torch.device('cpu'))
-    # for gpu
-    checkpoint = torch.load(os.path.join(save_path, 'baseline_v2_ap.model'))
+    checkpoint = torch.load(
+        os.path.join(save_path, 'baseline_v2_ap.model'),
+        map_location=torch.device(device),
+    )
     
     model_weight = OrderedDict()
 

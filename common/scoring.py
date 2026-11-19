@@ -16,8 +16,10 @@ def extract_features(model, test_loader):
     
     feats = {}
 
+    device = next(model.parameters()).device
+
     for idx, data in enumerate(test_loader):
-        inp1 = data[0][0].cuda()
+        inp1 = data[0][0].to(device)
         
         with torch.no_grad():
             ref_feat = model(inp1).detach().cpu()
