@@ -42,8 +42,8 @@ def compute_scores(feats, lines):
 
         data = line.split()
 
-        ref_feat = feats[data[1]].cuda()
-        com_feat = feats[data[2]].cuda()
+        ref_feat = feats[data[1]]
+        com_feat = feats[data[2]]
 
         ref_feat = F.normalize(ref_feat, p=2, dim=1)
         com_feat = F.normalize(com_feat, p=2, dim=1)
