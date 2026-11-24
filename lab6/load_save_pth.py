@@ -24,10 +24,13 @@ def saveParameters(model, optimizer, scheduler, num_epoch, path):
 def loadParameters(model, optimizer, scheduler, path):
     # Load parameters
 
-    checkpoint = torch.load(path)
+    device = next(model.parameters()).device
+    checkpoint = torch.load(path, map_location=device)
     
     model.load_state_dict(checkpoint['model'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
-    scheduler[0].load_state_dict(checkpoint['scheduler'])
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer'])
+    if scheduler is not None:
+        scheduler[0].load_state_dict(checkpoint['scheduler'])
     
     return checkpoint['num_epoch']
