@@ -181,8 +181,10 @@ def run_voxceleb_convert(input_path, result_path, fun, threads=5):
             check_dir(Path(root.replace(input_path, result_path))/i)
         for f in files_list:
             infile = Path(root)/f
-            infile_list.append(infile)
             outfile = Path(root.replace(input_path, result_path))/f.replace('.m4a', '.wav')
+            if outfile.exists() and outfile.stat().st_size > 0:
+                continue
+            infile_list.append(infile)
             outfile_list.append(outfile)
 
     p = Pool(threads)
@@ -225,7 +227,7 @@ def change_fs(infile, outfile, fs):
 
 def apply_mp3_codec(infile, outfile):
     out = subprocess.call(
-        'ffmpeg -i %s -f mp3 -ac 1 -b:a 16k pipe: 2>/dev/null | ffmpeg -f mp3 -i pipe: %s >/dev/null 2>/dev/null' % (
+        'ffmpeg -y -i %s -f mp3 -ac 1 -b:a 16k pipe: 2>/dev/null | ffmpeg -y -f mp3 -i pipe: %s >/dev/null 2>/dev/null' % (
         infile, outfile), shell=True)
     if out != 0:
         raise ValueError('Conversion failed %s.' % infile)
