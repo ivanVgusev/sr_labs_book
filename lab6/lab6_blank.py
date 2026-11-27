@@ -174,20 +174,20 @@ max_frames_train  = 400                                  # number of frame to tr
 train_path        = VOX1_DEV_WAV                        # path to train wav files
 batch_size_train  = 128                                  # batch size to train
 pin_memory        = False                                # pin memory
-num_workers_train = 0 if sys.platform == 'darwin' else 4 # number of workers to train
+num_workers_train = 0                                    # number of workers to train
 shuffle           = True                                 # shuffling of training examples
 
 # Validation dataloader (close-set identification)
 max_frames_val    = 400                                  # number of frame to validate
 val_path          = VOX1_DEV_WAV                        # path to val wav files
 batch_size_val    = 128                                  # batch size to validate
-num_workers_val   = 0 if sys.platform == 'darwin' else 4 # number of workers to validate
+num_workers_val   = 0                                    # number of workers to validate
 
 # Test dataloader (open-set verification)
 max_frames_test   = 400                                  # number of frame to test
 test_path         = VOX1_TEST_WAV                       # path to val wav files
 batch_size_test   = 1                                    # batch size to test
-num_workers_test  = 0 if sys.platform == 'darwin' else 4 # number of workers to test
+num_workers_test  = 0                                    # number of workers to test
 num_eval          = 5                                    # number of enroll/test chunks for scoring
 
 # Optimizer
@@ -323,18 +323,33 @@ scheduler = OneCycleLRScheduler(optimizer,
 # In[ ]:
 
 
-start_epoch = 0
-checkpoint_flag = False
+checkpoint_dir = DATA_DIR / 'lab6_models'
+latest_checkpoint = checkpoint_dir / 'lab6_latest.pth'
+numbered_checkpoints = sorted(checkpoint_dir.glob('lab6_model_*.pth'))
+checkpoint_path = latest_checkpoint if latest_checkpoint.exists() else None
+if checkpoint_path is None and numbered_checkpoints:
+    checkpoint_path = numbered_checkpoints[-1]
 
-if checkpoint_flag:
-    start_epoch = loadParameters(main_model, optimizer, scheduler, path=DATA_DIR / 'lab6_models/lab6_model_0004.pth')
+start_epoch = 0
+if checkpoint_path is not None:
+    start_epoch = loadParameters(main_model, optimizer, scheduler, path=checkpoint_path)
     start_epoch = start_epoch + 1
+    print(f'Resuming training from epoch {start_epoch}: {checkpoint_path}')
 
 # Train model
 for num_epoch in range(start_epoch, max_epoch):
     train_loss, train_top1 = train_network(train_loader, main_model, optimizer, scheduler, num_epoch, verbose=True)
     
     print("Epoch {:1.0f}, Loss (train set) {:f}, Accuracy (train set) {:2.3f}%".format(num_epoch, train_loss, train_top1))
+
+    saveParameters(
+        main_model,
+        optimizer,
+        scheduler,
+        num_epoch,
+        path=checkpoint_dir,
+        filename='lab6_latest.pth',
+    )
 
     if (num_epoch + 1)%val_interval == 0:
         _, val_top1 = test_network(val_loader, main_model)                               # compute accuracy for validation set
@@ -348,7 +363,7 @@ for num_epoch in range(start_epoch, max_epoch):
         
         print("Epoch {:1.0f}, EER (test set) {:2.3f}%".format(num_epoch, EER))
         
-        saveParameters(main_model, optimizer, scheduler, num_epoch, path=DATA_DIR / 'lab6_models')
+        saveParameters(main_model, optimizer, scheduler, num_epoch, path=checkpoint_dir)
 
 
 # **3. Дополнительные задания по обучению дикторской модели на основе трансформерной архитектуры**

@@ -47,6 +47,24 @@ from LoadModel import load_model
 from ResNetSE34V2 import MainModel
 
 
+CACHE_DIR = DATA_DIR / 'lab5_cache'
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_or_extract_features(cache_name, model, loader):
+    cache_path = CACHE_DIR / cache_name
+    if cache_path.exists():
+        print(f'Loading cached features: {cache_path}')
+        return torch.load(cache_path, map_location='cpu')
+
+    features = extract_features(model, loader)
+    temporary_path = cache_path.with_suffix('.tmp')
+    torch.save(features, temporary_path)
+    temporary_path.replace(cache_path)
+    print(f'Features saved to: {cache_path}')
+    return features
+
+
 require_voxceleb(VOX1_DEV_WAV, VOX1_TEST_WAV, VOX1_VERI_TEST2)
 print(f'VoxCeleb1 dev: {VOX1_DEV_WAV}')
 print(f'VoxCeleb1 test: {VOX1_TEST_WAV}')
@@ -92,7 +110,7 @@ test_files = sorted({
     for line in protocol
     for path in line.strip().split()[-2:]
 })
-num_workers = 0 if sys.platform == 'darwin' else 8
+num_workers = 0
 
 test_dataset = test_dataset_loader(
     test_files,
@@ -106,7 +124,11 @@ test_loader = DataLoader(
     shuffle=False,
     num_workers=num_workers,
 )
-features_out_of_domain = extract_features(model, test_loader)
+features_out_of_domain = load_or_extract_features(
+    'test_clean_features.pth',
+    model,
+    test_loader,
+)
 
 test_dataset = test_dataset_loader(
     test_files,
@@ -120,7 +142,11 @@ test_loader = DataLoader(
     shuffle=False,
     num_workers=num_workers,
 )
-features_in_domain = extract_features(model, test_loader)
+features_in_domain = load_or_extract_features(
+    'test_mp3_features.pth',
+    model,
+    test_loader,
+)
 
 scores_in_domain, labels_in_domain, trials_in_domain = compute_scores_cosine(
     features_in_domain,
@@ -149,7 +175,11 @@ adaptation_loader = DataLoader(
     shuffle=False,
     num_workers=num_workers,
 )
-adaptation_features = extract_features(model, adaptation_loader)
+adaptation_features = load_or_extract_features(
+    'dev_mp3_features.pth',
+    model,
+    adaptation_loader,
+)
 
 normalized_scores, normalized_labels, normalized_trials = s_norm(
     features_in_domain,
@@ -184,7 +214,11 @@ calibration_loader = DataLoader(
     shuffle=False,
     num_workers=num_workers,
 )
-calibration_features = extract_features(model, calibration_loader)
+calibration_features = load_or_extract_features(
+    'dev_clean_features.pth',
+    model,
+    calibration_loader,
+)
 
 rng = np.random.default_rng(random_seed)
 utterances = defaultdict(lambda: defaultdict(list))

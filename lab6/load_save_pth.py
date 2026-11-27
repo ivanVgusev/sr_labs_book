@@ -7,7 +7,7 @@ import os
 import torch
 
 
-def saveParameters(model, optimizer, scheduler, num_epoch, path):
+def saveParameters(model, optimizer, scheduler, num_epoch, path, filename=None):
     # Save parameters
     
     checkpoint = {}
@@ -19,7 +19,13 @@ def saveParameters(model, optimizer, scheduler, num_epoch, path):
     if not os.path.exists(path):
         os.makedirs(path)
     
-    torch.save(checkpoint, os.path.join(path, ''.join(['lab6_model_', str(num_epoch).zfill(4), '.pth'])))
+    if filename is None:
+        filename = ''.join(['lab6_model_', str(num_epoch).zfill(4), '.pth'])
+
+    output_path = os.path.join(path, filename)
+    temporary_path = output_path + '.tmp'
+    torch.save(checkpoint, temporary_path)
+    os.replace(temporary_path, output_path)
     
 def loadParameters(model, optimizer, scheduler, path):
     # Load parameters
