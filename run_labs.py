@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import argparse
 import importlib
 import shutil
 import subprocess
@@ -17,54 +18,77 @@ LABS = (
     ('lab7', ROOT_DIR / 'lab7' / 'lab7_blank.py'),
 )
 
-REQUIRED_MODULES = (
-    'matplotlib',
-    'numpy',
-    'scipy',
-    'sklearn',
-    'soundfile',
-    'tabulate',
-    'torch',
-    'torchaudio',
-    'tqdm',
-    'whisper',
-)
+REQUIRED_MODULES = {
+    'lab5': (
+        'matplotlib', 'numpy', 'scipy', 'sklearn', 'soundfile',
+        'torch', 'torchaudio', 'tqdm',
+    ),
+    'lab6': (
+        'matplotlib', 'numpy', 'scipy', 'sklearn', 'soundfile',
+        'torch', 'torchaudio', 'tqdm', 'whisper',
+    ),
+    'lab7': (
+        'matplotlib', 'numpy', 'sklearn', 'soundfile',
+        'tabulate', 'torch', 'torchaudio',
+    ),
+}
 
-REQUIRED_PATHS = (
-    DATA_DIR / 'voxceleb1_dev' / 'wav',
-    DATA_DIR / 'voxceleb1_test' / 'wav',
-    DATA_DIR / 'voxceleb_meta' / 'iden_split.txt',
-    DATA_DIR / 'voxceleb_meta' / 'veri_test2.txt',
-    DATA_DIR / 'lists' / 'models.txt',
-    DATA_DIR / 'musan_split',
-    DATA_DIR / 'RIRS_NOISES' / 'simulated_rirs',
-    DATA_DIR / 'lab3_models' / 'lab3_model_0039.pth',
-)
+REQUIRED_PATHS = {
+    'lab5': (
+        DATA_DIR / 'voxceleb1_dev' / 'wav',
+        DATA_DIR / 'voxceleb1_test' / 'wav',
+        DATA_DIR / 'voxceleb_meta' / 'veri_test2.txt',
+        DATA_DIR / 'lists' / 'models.txt',
+    ),
+    'lab6': (
+        DATA_DIR / 'voxceleb1_dev' / 'wav',
+        DATA_DIR / 'voxceleb1_test' / 'wav',
+        DATA_DIR / 'voxceleb_meta' / 'iden_split.txt',
+        DATA_DIR / 'voxceleb_meta' / 'veri_test2.txt',
+        DATA_DIR / 'musan_split',
+        DATA_DIR / 'RIRS_NOISES' / 'simulated_rirs',
+    ),
+    'lab7': (
+        DATA_DIR / 'voxceleb1_test' / 'wav',
+        DATA_DIR / 'lab3_models' / 'lab3_model_0039.pth',
+    ),
+}
 
 
-def preflight():
+def preflight(lab_names):
     errors = []
 
-    if shutil.which('ffmpeg') is None:
+    if 'lab5' in lab_names and shutil.which('ffmpeg') is None:
         errors.append('ffmpeg is not installed or is not available in PATH')
 
-    for module_name in REQUIRED_MODULES:
+    module_names = sorted({
+        module_name
+        for lab_name in lab_names
+        for module_name in REQUIRED_MODULES[lab_name]
+    })
+    for module_name in module_names:
         try:
             importlib.import_module(module_name)
         except Exception as error:
             errors.append(f'cannot import {module_name}: {error}')
 
-    for path in REQUIRED_PATHS:
+    paths = {
+        path
+        for lab_name in lab_names
+        for path in REQUIRED_PATHS[lab_name]
+    }
+    for path in sorted(paths):
         if not path.exists():
             errors.append(f'missing path: {path}')
 
-    try:
-        import torch
+    if 'lab6' in lab_names:
+        try:
+            import torch
 
-        if not torch.cuda.is_available():
-            errors.append('CUDA is not available; lab6 training must run on a GPU node')
-    except Exception:
-        pass
+            if not torch.cuda.is_available():
+                errors.append('CUDA is not available; lab6 training must run on a GPU node')
+        except Exception:
+            pass
 
     if errors:
         print('Preflight failed:')
@@ -72,7 +96,7 @@ def preflight():
             print(f'  - {error}')
         return False
 
-    print('Preflight passed. All dependencies, data and checkpoints are available.')
+    print(f'Preflight passed for {", ".join(lab_names)}.')
     return True
 
 
@@ -105,13 +129,29 @@ def run_lab(name, script_path):
 
 
 def main():
-    if not preflight():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--start-at',
+        choices=tuple(name for name, _ in LABS),
+        default='lab5',
+        help='start with this lab and run the remaining labs in order',
+    )
+    args = parser.parse_args()
+
+    start_index = next(
+        index for index, (name, _) in enumerate(LABS)
+        if name == args.start_at
+    )
+    selected_labs = LABS[start_index:]
+    lab_names = [name for name, _ in selected_labs]
+
+    if not preflight(lab_names):
         raise SystemExit(1)
 
-    for name, script_path in LABS:
+    for name, script_path in selected_labs:
         run_lab(name, script_path)
 
-    print('Labs 5, 6 and 7 completed successfully.')
+    print(f'{", ".join(lab_names)} completed successfully.')
 
 
 if __name__ == '__main__':
